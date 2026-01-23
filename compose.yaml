@@ -1,0 +1,67 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: 'postgres:latest'
+    environment:
+      - 'POSTGRES_DB=mydatabase'
+      - 'POSTGRES_PASSWORD=secret'
+      - 'POSTGRES_USER=myuser'
+    ports:
+      - '5432:5432'  # Expose to host for easy access
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # RabbitMQ Message Queue (with Management UI)
+  rabbitmq:
+    image: 'rabbitmq:3-management'  # Changed to include management UI
+    environment:
+      - 'RABBITMQ_DEFAULT_PASS=secret'
+      - 'RABBITMQ_DEFAULT_USER=myuser'
+    ports:
+      - '5672:5672'      # AMQP protocol port
+      - '15672:15672'    # Management UI - Access at http://localhost:15672
+
+  # Redis Cache
+  redis:
+    image: 'redis:latest'
+    ports:
+      - '6379:6379'
+
+  # Zookeeper - Required by Kafka for cluster coordination
+  zookeeper:
+    image: 'confluentinc/cp-zookeeper:latest'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - '2181:2181'
+
+  # Kafka - Event Streaming Platform
+  kafka:
+    image: 'confluentinc/cp-kafka:latest'
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    ports:
+      - '9092:9092'
+
+  # Kafka UI - Web interface to manage Kafka (Great for learning!)
+  kafka-ui:
+    image: 'provectuslabs/kafka-ui:latest'
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - '8080:8080'  # Access at http://localhost:8080
+
+volumes:
+  postgres_data:

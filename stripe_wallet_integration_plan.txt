@@ -1,0 +1,539 @@
+Stripe Payment Integration Plan for Wallet Top-up
+====================================================
+
+PROJECT OVERVIEW:
+-----------------
+This plan integrates Stripe payment processing to allow users to top up their 
+wallet balance using credit/debit cards (Visa, MasterCard, etc.). The existing 
+Payment and Wallet entities will be used to track transactions.
+
+
+PHASE 1: BACKEND SETUP
+-----------------------
+
+1. **Add Stripe Java SDK Dependency**
+   Location: pom.xml
+   
+   Add the official Stripe Java SDK:
+   ```xml
+   <dependency>
+     <groupId>com.stripe</groupId>
+     <artifactId>stripe-java</artifactId>
+     <version>26.13.0</version>
+   </dependency>
+   ```
+   Note: Using latest stable version (as of Jan 2026). Check https://github.com/stripe/stripe-java for updates.
+
+2. **Stripe Configuration**
+   Location: src/main/resources/application.properties
+   
+   Add Stripe API keys (use environment variables in production):
+   ```properties
+   # Stripe Configuration
+   stripe.api.key=${STRIPE_SECRET_KEY:sk_test_your_test_key_here}
+   stripe.webhook.secret=${STRIPE_WEBHOOK_SECRET:whsec_your_webhook_secret}
+   stripe.currency=usd
+   ```
+   
+   IMPORTANT: 
+   - Never commit real API keys to version control
+   - For production, use environment variables
+   - Get keys from: https://dashboard.stripe.com/apikeys
+   - Webhook secret comes from: https://dashboard.stripe.com/webhooks
+
+3. **Create StripeService**
+   Location: src/main/java/com/example/auctionhub/auctionhub/service/StripeService.java
+   
+   Responsibilities:
+   - Initialize Stripe with API key
+   - Create PaymentIntent for wallet top-up
+   - Verify webhook signatures
+   - Handle webhook events
+   
+   Key Methods:
+   ```java
+   - PaymentIntent createPaymentIntent(BigDecimal amount, Long userId)
+   - Event constructWebhookEvent(String payload, String sigHeader)
+   - void handlePaymentIntentSucceeded(PaymentIntent paymentIntent)
+   - void handlePaymentIntentFailed(PaymentIntent paymentIntent)
+   ```
+
+4. **Create PaymentService**
+   Location: src/main/java/com/example/auctionhub/auctionhub/service/PaymentService.java
+   
+   Responsibilities:
+   - Create and save Payment records in database
+   - Update payment status based on webhook events
+   - Link payments to users and wallets
+   
+   Key Methods:
+   ```java
+   - Payment createPaymentRecord(User user, BigDecimal amount, String paymentIntentId, String clientSecret)
+   - Payment updatePaymentStatus(String paymentIntentId, PaymentStatus status, String failureReason)
+   - Payment findByStripePaymentIntentId(String paymentIntentId)
+   ```
+
+5. **Update WalletService**
+   Location: src/main/java/com/example/auctionhub/auctionhub/service/WalletService.java
+   
+   Add/Update Methods:
+   ```java
+   - PaymentIntent initiateTopUp(BigDecimal amount) // Creates PaymentIntent and Payment record
+   - void creditWallet(Long userId, BigDecimal amount, Long paymentId) // Credits wallet after successful payment
+   ```
+   
+   IMPORTANT: Use database transactions and optimistic locking (via @Version) to prevent race conditions.
+
+
+PHASE 2: CONTROLLERS AND ENDPOINTS
+-----------------------------------
+
+6. **Create WalletController** (or update existing)
+   Location: src/main/java/com/example/auctionhub/auctionhub/controller/WalletController.java
+   
+   Endpoints:
+   
+   a) POST /api/wallet/topup
+      - Request body: { "amount": 50.00 }
+      - Validates amount (minimum $1, maximum $10,000)
+      - Creates Stripe PaymentIntent
+      - Returns client secret to frontend
+      - Response: { "clientSecret": "pi_xxx_secret_xxx", "paymentId": 123 }
+   
+   b) GET /api/wallet
+      - Returns current wallet balance and transaction history
+      - Response: { "availableBalance": 150.00, "frozenBalance": 0, "totalSpend": 50.00 }
+
+7. **Create StripeWebhookController**
+   Location: src/main/java/com/example/auctionhub/auctionhub/controller/StripeWebhookController.java
+   
+   Endpoint:
+   
+   POST /api/stripe/webhook
+   - Receives Stripe webhook events
+   - Verifies signature using webhook secret
+   - Delegates event handling to StripeService
+   - Returns 200 OK immediately (Stripe requires fast response)
+   
+   CRITICAL: This endpoint must NOT require authentication (Stripe calls it directly).
+   Add to SecurityConfig to permit access.
+   
+   Handle these events:
+   - payment_intent.succeeded (credit wallet)
+   - payment_intent.payment_failed (update payment status)
+   - payment_intent.canceled (update payment status)
+
+
+PHASE 3: DATABASE UPDATES
+--------------------------
+
+8. **Update Payment Entity**
+   Location: src/main/java/com/example/auctionhub/auctionhub/models/Payment.java
+   
+   Current fields look good. Ensure you have:
+   - stripePaymentIntentId (String, indexed)
+   - stripeClientSecret (String)
+   - paymentStatus (INITIATED, PROCESSING, SUCCEEDED, FAILED, CANCELED, REFUNDED)
+   - amount (BigDecimal)
+   - currency (String, default "USD")
+   - user (ManyToOne relationship)
+   - createdAt, updatedAt timestamps
+   - failureReason (String, nullable)
+   
+   Add if missing:
+   ```java
+   @Column(name = "amount", nullable = false, precision = 10, scale = 2)
+   private BigDecimal amount;
+   
+   @Column(name = "currency", nullable = false, length = 3)
+   private String currency = "USD";
+   
+   @Column(name = "payment_type")
+   @Enumerated(EnumType.STRING)
+   private PaymentType paymentType = PaymentType.WALLET_TOPUP; // WALLET_TOPUP, AUCTION_PAYMENT, etc.
+   ```
+
+9. **Create PaymentRepository**
+   Location: src/main/java/com/example/auctionhub/auctionhub/repository/PaymentRepository.java
+   
+   Add query methods:
+   ```java
+   Optional<Payment> findByStripePaymentIntentId(String stripePaymentIntentId);
+   List<Payment> findByUserIdOrderByCreatedAtDesc(Long userId);
+   ```
+
+10. **Database Migration**
+    - If using Flyway/Liquibase, create migration script
+    - If not, ensure Payment table has all required columns
+    - Add index on stripe_payment_intent_id for fast lookups
+
+
+PHASE 4: FRONTEND INTEGRATION
+------------------------------
+
+11. **Add Stripe.js to Frontend**
+    Location: src/main/resources/static/index.html (or relevant pages)
+    
+    Add Stripe.js library:
+    ```html
+    <script src="https://js.stripe.com/v3/"></script>
+    ```
+
+12. **Create Wallet Top-up UI**
+    Location: src/main/resources/static/js/wallet.js (new file)
+    
+    Flow:
+    1. User enters amount to add
+    2. Frontend calls POST /api/wallet/topup
+    3. Receives clientSecret from backend
+    4. Initialize Stripe with publishable key
+    5. Use Stripe Elements to collect card details
+    6. Confirm payment with stripe.confirmCardPayment(clientSecret)
+    7. Show success/error message
+    8. Redirect to wallet page
+    
+    Example Code:
+    ```javascript
+    const stripe = Stripe('pk_test_your_publishable_key');
+    
+    // Create card element
+    const elements = stripe.elements();
+    const cardElement = elements.create('card');
+    cardElement.mount('#card-element');
+    
+    // Handle form submission
+    async function handleTopup(amount) {
+        // Call backend to create PaymentIntent
+        const response = await fetch('/api/wallet/topup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+        });
+        const { clientSecret } = await response.json();
+        
+        // Confirm payment
+        const result = await stripe.confirmCardPayment(clientSecret, {
+            payment_method: { card: cardElement }
+        });
+        
+        if (result.error) {
+            // Show error
+            console.error(result.error.message);
+        } else if (result.paymentIntent.status === 'succeeded') {
+            // Payment successful
+            window.location.href = '/wallet.html?success=true';
+        }
+    }
+    ```
+
+
+PHASE 5: SECURITY AND VALIDATION
+---------------------------------
+
+13. **Security Configuration**
+    Location: src/main/java/com/example/auctionhub/auctionhub/config/SecurityConfig.java
+    
+    Update to allow webhook endpoint:
+    ```java
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/stripe/webhook").permitAll() // Allow Stripe webhooks
+                .requestMatchers("/api/wallet/topup").authenticated() // Require auth
+                // ... other rules
+            )
+            .csrf(csrf -> csrf
+                .ignoringRequestMatchers("/api/stripe/webhook") // Disable CSRF for webhooks
+            );
+    }
+    ```
+
+14. **Input Validation**
+    Create DTO for top-up request:
+    
+    Location: src/main/java/com/example/auctionhub/auctionhub/dto/WalletTopUpRequest.java
+    ```java
+    @Data
+    public class WalletTopUpRequest {
+        @NotNull(message = "Amount is required")
+        @DecimalMin(value = "1.00", message = "Minimum top-up is $1.00")
+        @DecimalMax(value = "10000.00", message = "Maximum top-up is $10,000.00")
+        @Digits(integer = 10, fraction = 2)
+        private BigDecimal amount;
+    }
+    ```
+
+15. **Idempotency**
+    - Store Stripe PaymentIntent ID in Payment table to prevent duplicate processing
+    - Check if payment already exists before creating new PaymentIntent
+    - Use database unique constraint on stripe_payment_intent_id
+
+
+PHASE 6: TESTING
+----------------
+
+16. **Local Development Setup**
+    - Install Stripe CLI: https://stripe.com/docs/stripe-cli
+    - Run: `stripe login`
+    - Forward webhooks to local: `stripe listen --forward-to localhost:8080/api/stripe/webhook`
+    - Copy webhook signing secret to application.properties
+    - Use ngrok if Stripe CLI not available: `ngrok http 8080`
+
+17. **Test Cards**
+    Use these test cards in Stripe test mode:
+    
+    - Visa (Success): 4242 4242 4242 4242
+    - Visa (Decline): 4000 0000 0000 0002
+    - Mastercard: 5555 5555 5555 4444
+    - Amex: 3782 822463 10005
+    - 3D Secure: 4000 0025 0000 3155
+    
+    Any future expiry date (e.g., 12/34), any CVC (e.g., 123)
+
+18. **Testing Checklist**
+    - [ ] Top-up with successful payment
+    - [ ] Top-up with declined card
+    - [ ] Webhook event processing
+    - [ ] Wallet balance updated correctly
+    - [ ] Payment record created and updated
+    - [ ] Concurrent top-up requests (test race conditions)
+    - [ ] Invalid amounts (negative, zero, too large)
+    - [ ] Unauthenticated access attempts
+    - [ ] Webhook signature verification failure
+    - [ ] Database transaction rollback on error
+
+
+PHASE 7: PRODUCTION DEPLOYMENT
+-------------------------------
+
+19. **Environment Variables**
+    Set these in production environment:
+    ```
+    STRIPE_SECRET_KEY=sk_live_xxxxx
+    STRIPE_WEBHOOK_SECRET=whsec_xxxxx
+    STRIPE_PUBLISHABLE_KEY=pk_live_xxxxx (frontend)
+    ```
+
+20. **Stripe Webhook Configuration**
+    - Go to Stripe Dashboard → Webhooks
+    - Add endpoint: https://yourdomain.com/api/stripe/webhook
+    - Select events: payment_intent.succeeded, payment_intent.payment_failed, payment_intent.canceled
+    - Copy webhook signing secret to environment variable
+
+21. **Monitoring and Logging**
+    - Log all Stripe API calls and responses
+    - Monitor webhook event processing
+    - Set up alerts for failed payments
+    - Track payment success/failure rates
+    - Use Stripe Dashboard for monitoring
+
+
+PHASE 8: OPTIONAL ENHANCEMENTS
+-------------------------------
+
+22. **Refunds**
+    - Add endpoint: POST /api/wallet/refund/{paymentId}
+    - Use Stripe Refunds API
+    - Deduct from wallet balance
+    - Update Payment status to REFUNDED
+
+23. **Payment Methods**
+    - Save payment methods for future use
+    - Implement one-click top-up
+    - Use Stripe SetupIntent for card saving
+
+24. **Transaction History**
+    - Display payment history in wallet page
+    - Filter by status, date range
+    - Export to CSV/PDF
+
+25. **Webhooks Best Practices**
+    - Process webhook events asynchronously (use queue like RabbitMQ)
+    - Implement retry logic for failed event processing
+    - Store raw webhook events for debugging
+
+
+
+IMPLEMENTATION CHECKLIST
+=========================
+
+Backend Components:
+-------------------
+- [ ] Add Stripe SDK dependency to pom.xml
+- [ ] Configure Stripe API keys in application.properties
+- [ ] Create StripeService.java (PaymentIntent creation, webhook verification)
+- [ ] Create/Update PaymentService.java (database operations for Payment entity)
+- [ ] Update WalletService.java (add initiateTopUp and creditWallet methods)
+- [ ] Create WalletController.java (POST /api/wallet/topup, GET /api/wallet)
+- [ ] Create StripeWebhookController.java (POST /api/stripe/webhook)
+- [ ] Create PaymentRepository.java with custom query methods
+- [ ] Create WalletTopUpRequest DTO with validation
+- [ ] Update Payment entity (add amount, currency, paymentType fields if missing)
+- [ ] Update SecurityConfig.java (permit webhook endpoint, disable CSRF for webhooks)
+
+Frontend Components:
+--------------------
+- [ ] Add Stripe.js script to HTML pages
+- [ ] Create wallet.html page (if not exists)
+- [ ] Create wallet.js (Stripe Elements integration, payment confirmation)
+- [ ] Add top-up form UI (amount input, card element)
+- [ ] Handle payment success/error states
+- [ ] Display wallet balance and transaction history
+
+Testing:
+--------
+- [ ] Install Stripe CLI for local webhook testing
+- [ ] Test successful payment flow
+- [ ] Test declined card scenarios
+- [ ] Test webhook event processing
+- [ ] Test concurrent requests (race conditions)
+- [ ] Test validation (invalid amounts, unauthorized access)
+- [ ] Verify wallet balance updates correctly
+- [ ] Test payment status transitions
+
+Production:
+-----------
+- [ ] Set environment variables for Stripe keys
+- [ ] Configure webhook endpoint in Stripe Dashboard
+- [ ] Set up monitoring and logging
+- [ ] Test with real payment methods (small amounts)
+- [ ] Implement error alerts and notifications
+
+
+IMPORTANT NOTES
+===============
+
+Security Considerations:
+------------------------
+1. NEVER commit Stripe API keys to version control
+2. Always verify webhook signatures to prevent fraud
+3. Use HTTPS in production (required by Stripe)
+4. Webhook endpoint must respond within 5 seconds
+5. Do NOT trust frontend for payment confirmation - always use webhooks
+6. Implement rate limiting on top-up endpoint
+7. Use optimistic locking (@Version) to prevent race conditions on wallet balance
+
+Database Transactions:
+----------------------
+1. Wrap wallet credit operations in @Transactional
+2. Use proper isolation level (READ_COMMITTED or higher)
+3. Handle OptimisticLockException for concurrent updates
+4. Create Payment record BEFORE creating Stripe PaymentIntent
+5. Update Payment status only in webhook handler
+
+Stripe Best Practices:
+----------------------
+1. Always handle idempotency (check for duplicate PaymentIntents)
+2. Store metadata in PaymentIntent (userId, paymentId for tracking)
+3. Implement proper error handling for Stripe API calls
+4. Use Stripe test mode during development
+5. Keep Stripe SDK updated for security patches
+6. Log all Stripe API interactions for debugging
+7. Process webhooks asynchronously for scalability
+
+Webhook Handling:
+-----------------
+1. Verify signature using Stripe webhook secret
+2. Respond with 200 OK immediately (before processing)
+3. Process events asynchronously if needed
+4. Handle duplicate events gracefully (check if already processed)
+5. Log raw webhook payload for debugging
+6. Implement retry logic for failed event processing
+7. Monitor webhook delivery in Stripe Dashboard
+
+Amount Handling:
+----------------
+1. Stripe uses smallest currency unit (cents for USD)
+2. Convert BigDecimal to cents: amount.multiply(100).longValue()
+3. Validate minimum ($1.00) and maximum ($10,000) amounts
+4. Use BigDecimal for all money calculations (never float/double)
+5. Store amounts with precision=10, scale=2 in database
+
+Existing Models Integration:
+-----------------------------
+Your existing models:
+- Payment: Has stripePaymentIntentId, stripeClientSecret, paymentStatus ✓
+- Wallet: Has availableBalance, frozenBalance, totalSpend ✓
+
+Add to Payment if missing:
+- amount (BigDecimal)
+- currency (String, default "USD")
+- paymentType enum (WALLET_TOPUP, AUCTION_PAYMENT, etc.)
+
+Update WalletService.addBalanceToWallet() method:
+- Currently incomplete - implement with Stripe integration
+- Should create PaymentIntent and return client secret
+- Actual balance update happens in webhook handler
+
+
+TROUBLESHOOTING
+===============
+
+Common Issues:
+--------------
+1. Webhook not receiving events
+   → Use Stripe CLI: stripe listen --forward-to localhost:8080/api/stripe/webhook
+   → Check firewall/security groups in production
+   → Verify endpoint is publicly accessible
+
+2. Signature verification fails
+   → Ensure using correct webhook secret (different for each endpoint)
+   → Check if request body is parsed before verification (must use raw body)
+   → Verify webhook secret matches Stripe Dashboard configuration
+
+3. Payment succeeded but wallet not credited
+   → Check webhook event processing logs
+   → Verify payment_intent.succeeded event is enabled
+   → Check database transactions are committing
+   → Look for exceptions in webhook handler
+
+4. Duplicate top-ups
+   → Implement idempotency check using PaymentIntent ID
+   → Add unique constraint on stripe_payment_intent_id in database
+   → Check for race conditions in wallet update logic
+
+5. Frontend errors
+   → Verify Stripe publishable key is correct (pk_test_... or pk_live_...)
+   → Check CORS configuration allows Stripe requests
+   → Ensure card element is properly mounted before confirmation
+
+
+STRIPE RESOURCES
+=================
+
+Documentation:
+- API Reference: https://stripe.com/docs/api
+- Java SDK: https://github.com/stripe/stripe-java
+- Webhooks Guide: https://stripe.com/docs/webhooks
+- Testing Guide: https://stripe.com/docs/testing
+- Payment Intents: https://stripe.com/docs/payments/payment-intents
+
+Stripe Dashboard:
+- API Keys: https://dashboard.stripe.com/apikeys
+- Webhooks: https://dashboard.stripe.com/webhooks
+- Test Cards: https://stripe.com/docs/testing#cards
+- Logs: https://dashboard.stripe.com/logs
+
+Tools:
+- Stripe CLI: https://stripe.com/docs/stripe-cli
+- Postman Collection: https://www.postman.com/stripedev/workspace/stripe-developers
+
+
+NEXT STEPS
+==========
+
+1. Review this plan thoroughly
+2. Set up Stripe account (if not done): https://dashboard.stripe.com/register
+3. Get test API keys from Stripe Dashboard
+4. Start with Phase 1 (Backend Setup) - add dependency and configuration
+5. Implement StripeService and PaymentService
+6. Create controllers and endpoints
+7. Test with Stripe CLI before frontend integration
+8. Implement frontend after backend is working
+9. Deploy to staging environment
+10. Test end-to-end flow
+11. Configure production webhooks
+12. Deploy to production with monitoring
+
+Good luck with your integration! 🚀

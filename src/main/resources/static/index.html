@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuctionHub - Your Premier Auction Platform</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="logo">
+                <i class="fas fa-gavel"></i>
+                <span>AuctionHub</span>
+            </a>
+            <div class="nav-links">
+                <span class="nav-username hidden" data-nav="welcome"></span>
+                <a href="items.html" class="btn btn-outline hidden" data-nav="items">
+                    <i class="fas fa-box"></i>
+                    My Items
+                </a>
+                <a href="login.html" class="btn btn-outline" data-nav="login">Login</a>
+                <a href="register.html" class="btn btn-primary" data-nav="register">Sign Up</a>
+                <button type="button" class="btn btn-outline hidden" data-nav="logout" data-action="logout">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">
+                Discover. Bid. <span class="gradient-text">Win.</span>
+            </h1>
+            <p class="hero-subtitle">
+                Join thousands of users on the most trusted auction platform. 
+                Find unique items, place competitive bids, and win amazing deals.
+            </p>
+            <div class="hero-buttons">
+                <a href="register.html" class="btn btn-primary btn-lg" data-nav="register">
+                    <i class="fas fa-rocket"></i>
+                    Get Started Free
+                </a>
+                <a href="login.html" class="btn btn-outline btn-lg" data-nav="login">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Login to Account
+                </a>
+                <button type="button" class="btn btn-outline btn-lg hidden" data-nav="logout" data-action="logout">
+                    <i class="fas fa-door-open"></i>
+                    Logout
+                </button>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-number">10K+</span>
+                    <span class="stat-label">Active Users</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">50K+</span>
+                    <span class="stat-label">Items Sold</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">$2M+</span>
+                    <span class="stat-label">Total Bids</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-image">
+            <div class="floating-card card-1">
+                <i class="fas fa-gem"></i>
+                <span>Rare Collectibles</span>
+            </div>
+            <div class="floating-card card-2">
+                <i class="fas fa-car"></i>
+                <span>Vehicles</span>
+            </div>
+            <div class="floating-card card-3">
+                <i class="fas fa-palette"></i>
+                <span>Art & Antiques</span>
+            </div>
+            <div class="auction-illustration">
+                <i class="fas fa-gavel"></i>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <h2 class="section-title">Why Choose AuctionHub?</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <h3>Secure Transactions</h3>
+                <p>Your payments and personal data are protected with industry-leading security measures.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-bolt"></i>
+                </div>
+                <h3>Real-time Bidding</h3>
+                <p>Experience instant bid updates and never miss an opportunity to win your favorite items.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-wallet"></i>
+                </div>
+                <h3>Digital Wallet</h3>
+                <p>Manage your funds easily with our integrated wallet system for quick transactions.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-bell"></i>
+                </div>
+                <h3>Smart Notifications</h3>
+                <p>Stay informed with alerts for outbids, auction endings, and new items in your interests.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="cta-content">
+            <h2>Ready to Start Bidding?</h2>
+            <p>Join AuctionHub today and discover amazing deals waiting for you.</p>
+            <a href="register.html" class="btn btn-white btn-lg">
+                Create Free Account
+                <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <a href="index.html" class="logo">
+                    <i class="fas fa-gavel"></i>
+                    <span>AuctionHub</span>
+                </a>
+                <p>Your trusted platform for online auctions.</p>
+            </div>
+            <div class="footer-links">
+                <h4>Quick Links</h4>
+                <a href="#">About Us</a>
+                <a href="#">How It Works</a>
+                <a href="#">Contact</a>
+            </div>
+            <div class="footer-links">
+                <h4>Legal</h4>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Service</a>
+                <a href="#">FAQ</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2025 AuctionHub. All rights reserved.</p>
+        </div>
+    </footer>
+    <script src="js/auth.js"></script>
+</body>
+</html>
