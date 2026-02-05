@@ -1,6 +1,7 @@
 package com.example.auctionhub.auctionhub.service;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -84,6 +85,7 @@ public class AuthService {
      * @return AuthInternalResult with registration outcome
      * @throws IllegalArgumentException if passwords do not match or user/email exists
      */
+    @Transactional
     public AuthInternalResult registerUser(AuthRegisterRequest request) {
         // Validate password confirmation
         if (!request.getPassword().equals(request.getConfirmPassword())) {

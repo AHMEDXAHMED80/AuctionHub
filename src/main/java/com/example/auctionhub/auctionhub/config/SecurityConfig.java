@@ -46,6 +46,7 @@ public class SecurityConfig {
         requestHandler.setCsrfRequestAttributeName(null); // the name of the csrf token / -> usign defualt
 
         http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf // to genetate the csrf token to protect from xss attacks
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(requestHandler)
@@ -55,15 +56,10 @@ public class SecurityConfig {
                             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                                 return false; // Skip CSRF for Bearer token requests
                             }
-                            // Skip CSRF for auth endpoints, Stripe webhooks, and static resources
+                            // Skip CSRF for auth endpoints and Stripe webhooks
                             String path = request.getRequestURI();
                             if (path.startsWith("/api/auth/") ||
-                                    path.startsWith("/api/stripe/webhook") ||
-                                    path.equals("/") ||
-                                    path.endsWith(".html") ||
-                                    path.startsWith("/css/") ||
-                                    path.startsWith("/js/") ||
-                                    path.startsWith("/images/")) {
+                                    path.startsWith("/api/stripe/webhook")) {
                                 return false;
                             }
                             // Require CSRF for authenticated API requests with cookies
@@ -71,12 +67,9 @@ public class SecurityConfig {
                         }))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/login.html", "/register.html", "/logout.html",
-                                "/favicon.ico")
-                        .permitAll()
-                        .requestMatchers("/css/**", "/js/**", "/images/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/stripe/webhook").permitAll()
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -89,7 +82,7 @@ public class SecurityConfig {
                                                                // a response
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of("http://localhost:8080"));
+        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

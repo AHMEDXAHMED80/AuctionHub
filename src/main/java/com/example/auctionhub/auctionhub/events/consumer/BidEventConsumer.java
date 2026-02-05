@@ -10,17 +10,23 @@ import com.example.auctionhub.auctionhub.messaging.publisher.NotificationPublish
 import com.example.auctionhub.auctionhub.models.Bid;
 import com.example.auctionhub.auctionhub.repository.BidRepository;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class BidEventConsumer {
-    
+
     private final SimpMessagingTemplate messagingTemplate;
     private final BidRepository bidRepository;
     private final NotificationPublisher notificationPublisher;
+
+    public BidEventConsumer(SimpMessagingTemplate messagingTemplate,
+                           BidRepository bidRepository,
+                           NotificationPublisher notificationPublisher) {
+        this.messagingTemplate = messagingTemplate;
+        this.bidRepository = bidRepository;
+        this.notificationPublisher = notificationPublisher;
+    }
     
     @KafkaListener(topics = "bid.events", groupId = "bid-notification-group")
     public void consumeBidEvent(BidEvent bidEvent) {

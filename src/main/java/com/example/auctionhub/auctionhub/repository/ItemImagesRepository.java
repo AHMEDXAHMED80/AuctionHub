@@ -5,7 +5,6 @@ import com.example.auctionhub.auctionhub.models.ItemImages;
 import io.lettuce.core.dynamic.annotation.Param;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,6 +23,6 @@ public interface ItemImagesRepository extends JpaRepository<ItemImages, Long> {
         Optional<ItemImages> findImageByIndex(Long itemId, int index); // <-- Use camelCase
 
 
-        @Query ("SELECT i.itemId, i.imageUrl FROM ItemImages i WHERE i.itemId = itemId AND i.index = 0")
+        @Query ("SELECT i.item.id, i.url FROM ItemImages i WHERE i.item.id IN :itemId AND i.index = 0")
         List<Object[]> findFirstImageIndexByitemId(@Param("itemId") List<Long> itemId);
 }

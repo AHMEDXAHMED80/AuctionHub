@@ -20,8 +20,6 @@ import com.example.auctionhub.auctionhub.models.Bid.bidStatus;
 import com.example.auctionhub.auctionhub.models.Item.ItemStatus;
 import com.example.auctionhub.auctionhub.repository.BidRepository;
 import com.example.auctionhub.auctionhub.repository.ItemRepository;
-import com.example.auctionhub.auctionhub.repository.WalletRepository;
-import com.example.auctionhub.auctionhub.repository.ItemImagesRepository;
 import com.example.auctionhub.auctionhub.security.SecurityUtils;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.transaction.Transactional;
@@ -61,23 +59,20 @@ public class BidService {
     private final com.example.auctionhub.auctionhub.mapper.ItemBidderMapper itemBidderMapper;
 
     /**
-     * Repository for wallet persistence operations.
+     * Service for wallet operations.
      */
-    private final WalletRepository walletRepository;
+    private final WalletService walletService;
+
     
-    /**
-     * Repository for item images persistence operations.
-     */
-    private final ItemImagesRepository itemImagesRepository;
     
     /**
      * Mapper for converting Bid history to DTOs.
      */
     private final UserBidHistoryMapper userBidHistoryMapper;
     /**
-     * Service for item operations.
+     * Service for item image operations.
      */
-    private final ItemsSellerService itemsSellerService;
+    private final ItemImageService itemImageService;
 
     /**
      * Constructs a BidService with required dependencies.
@@ -87,21 +82,19 @@ public class BidService {
      * @param bidRepository          Repository for Bid persistence
      * @param bidMapper              Mapper for Bid to DTOs
      * @param itemBidderMapper       Mapper for ItemBidder responses
-     * @param walletRepository       Repository for Wallet persistence
+     * @param walletService          Service for wallet operations
      * @param userBidHistoryMapper   Mapper for user bid history DTOs
-     * @param itemImagesRepository   Repository for item images persistence
-     * @param itemService            Service for item operations
+     * @param itemImageService       Service for item image operations
      */
-    public BidService(ItemRepository itemRepository, BidEventProducer bidEventProducer, BidRepository bidRepository, BidMapper bidMapper, com.example.auctionhub.auctionhub.mapper.ItemBidderMapper itemBidderMapper, WalletRepository walletRepository, UserBidHistoryMapper userBidHistoryMapper, ItemImagesRepository itemImagesRepository, ItemsSellerService itemService) {
+    public BidService(ItemRepository itemRepository, BidEventProducer bidEventProducer, BidRepository bidRepository, BidMapper bidMapper, com.example.auctionhub.auctionhub.mapper.ItemBidderMapper itemBidderMapper, WalletService walletService, UserBidHistoryMapper userBidHistoryMapper, ItemImageService itemImageService) {
         this.itemRepository = itemRepository;
         this.bidEventProducer = bidEventProducer;
         this.bidRepository = bidRepository;
         this.bidMapper = bidMapper;
         this.itemBidderMapper = itemBidderMapper;
-        this.walletRepository = walletRepository;
+        this.walletService = walletService;
         this.userBidHistoryMapper = userBidHistoryMapper;
-        this.itemImagesRepository = itemImagesRepository;
-        this.itemsSellerService = itemService;
+        this.itemImageService = itemImageService;
     }
 
     /**
@@ -334,7 +327,7 @@ public class BidService {
         
         // Batch fetch to avoid N+1 problem
         log.debug("Batch fetching images and highest bids for {} items", userHistoryBidsItemId.size());
-        Map<Long, String> urlsForImagesFirstIndex = itemsSellerService.getFirstImageIndexForAllItems(userHistoryBidsItemId);
+        Map<Long, String> urlsForImagesFirstIndex = itemImageService.getFirstImageIndexForAllItems(userHistoryBidsItemId);
         List<Bid> highestBids = bidRepository.findHighestBidsByItemIds(userHistoryBidsItemId);
         Map<Long, Bid> highestBidsMap = highestBids.stream()
             .collect(Collectors.toMap(bid -> bid.getItem().getId(), bid -> bid));
@@ -447,48 +440,41 @@ public class BidService {
      * @param newBidder User placing the new bid
      * @param NewAmount Amount of the new bid to freeze
      */
-    private void handleBidWalletTransactions(Long itemId, User newBidder, BigDecimal NewAmount) {
-        log.debug("Processing wallet transactions for new bid on item {}", itemId);
-        
-        // Find the previous highest bid
-        Bid prevhighestBid = bidRepository.findHighestBidByItemId(itemId).orElse(null);
-        
-        // Step 1: Release frozen funds from previous highest bidder (if exists)
-        if (prevhighestBid != null) {
-            log.info("Releasing frozen funds for previous bidder on item {}", itemId);
-            User prevUser = prevhighestBid.getUser();
-            Wallet prevUserWallet = prevUser.getWallet();
-            
-            // Unfreeze previous bid amount
-            prevUserWallet.setFrozenBalance(prevUserWallet.getFrozenBalance().subtract(prevhighestBid.getBidAmount()));
-            // Return funds to available balance
-            prevUserWallet.setAvailableBalance(prevUserWallet.getAvailableBalance().add(prevhighestBid.getBidAmount()));
-            
-            // Mark previous bid as lost
-            prevhighestBid.setStatus(bidStatus.LOST);
-            prevhighestBid.setCurrentHighestBid(false);
-            bidRepository.save(prevhighestBid);
-            walletRepository.save(prevUserWallet);
+    private void handleBidWalletTransactions(Long itemId, User newBidder, BigDecimal newAmount) {
+        try {
+            log.debug("Processing wallet transactions for new bid on item {}", itemId);
 
-            log.info("Returned {} to previous bidder {}. New available balance: {}", 
-                prevhighestBid.getBidAmount(), prevUser.getId(), prevUserWallet.getAvailableBalance());
-        } else {
-            log.debug("No previous bid exists for item {}, skipping fund release", itemId);
+            // Find the previous highest bid
+            Bid prevHighestBid = bidRepository.findHighestBidByItemId(itemId).orElse(null);
+
+            // Step 1: Return frozen funds to previous bidder's available balance (if outbid)
+            if (prevHighestBid != null) {
+                User prevUser = prevHighestBid.getUser();
+                log.info("Returning frozen funds to previous bidder {} on item {}", prevUser.getId(), itemId);
+
+                // Unfreeze and return funds to previous bidder's available balance
+                walletService.deductFromFrozenBalance(prevUser.getId(), prevHighestBid.getBidAmount());
+
+                // Mark previous bid as lost
+                prevHighestBid.setStatus(bidStatus.LOST);
+                prevHighestBid.setCurrentHighestBid(false);
+                bidRepository.save(prevHighestBid);
+
+                log.info("Returned {} to previous bidder {}'s available balance",
+                    prevHighestBid.getBidAmount(), prevUser.getId());
+            } else {
+                log.debug("No previous bid exists for item {}, skipping fund release", itemId);
+            }
+
+            // Step 2: Freeze funds from new bidder (move from available to frozen)
+            log.info("Freezing {} from user {} wallet for bid on item {}", newAmount, newBidder.getId(), itemId);
+            walletService.addToFrozenBalance(newBidder.getId(), newAmount);
+
+            log.info("Funds frozen successfully for user {}", newBidder.getId());
+        } catch (Exception e) {
+            log.error("Error handling wallet transactions for item {}: {}", itemId, e.getMessage(), e);
+            throw new RuntimeException("Failed to process wallet transactions for bid on item " + itemId, e);
         }
-
-        // Step 2: Freeze funds for new bidder
-        Wallet newBidderWallet = newBidder.getWallet();
-        log.info("Freezing {} from user {} wallet for bid on item {}", 
-             NewAmount, newBidder.getId(), itemId);
-        
-        // Deduct from available balance
-        newBidderWallet.setAvailableBalance(newBidderWallet.getAvailableBalance().subtract(NewAmount));
-        // Add to frozen balance
-        newBidderWallet.setFrozenBalance(newBidderWallet.getFrozenBalance().add(NewAmount));
-        walletRepository.save(newBidderWallet);
-        
-        log.info("Funds frozen successfully. User {} - Available: {}, Frozen: {}", 
-             newBidder.getId(), newBidderWallet.getAvailableBalance(), newBidderWallet.getFrozenBalance());
     }
 
     

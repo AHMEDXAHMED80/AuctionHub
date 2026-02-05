@@ -9,6 +9,6 @@ import com.example.auctionhub.auctionhub.models.Notifications;
 @Repository
 public interface NotificationRepository extends JpaRepository<Notifications, Long> {
     List<Notifications> findByUserIdOrderByCreatedAtDesc(Long userId);
-    List<Notifications>findByUserIdAndIsReadFale(Long userId);
+    List<Notifications> findByUserIdAndIsReadFalse(Long userId);
     Long countByUserIdAndIsReadFalse(Long userId);
 }

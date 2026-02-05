@@ -56,7 +56,8 @@ public class Item {
         EXPIRED,
         SOLD,
         CANCELLED,
-        PENDING
+        PENDING,
+        PROCESSING
     }
     
     @Id

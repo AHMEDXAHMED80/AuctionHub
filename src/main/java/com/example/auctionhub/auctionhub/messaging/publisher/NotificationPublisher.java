@@ -2,15 +2,17 @@ package com.example.auctionhub.auctionhub.messaging.publisher;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import com.example.auctionhub.auctionhub.models.Notifications;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class NotificationPublisher {
-    
+
     private final RabbitTemplate rabbitTemplate;
+
+    public NotificationPublisher(RabbitTemplate rabbitTemplate) {
+        this.rabbitTemplate = rabbitTemplate;
+    }
     private static final String NOTIFICATION_EXCHANGE = "notification.exchange";
     private static final String NOTIFICATION_ROUTING_KEY = "notification.send";
 

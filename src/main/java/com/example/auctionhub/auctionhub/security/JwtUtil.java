@@ -32,7 +32,7 @@ public class JwtUtil {
     private final SecretKey secretKey;
     private final JwtParser parser;
 
-  public JwtUtil(@Value("${JWT_SECRET_B64}") String secret){
+  public JwtUtil(@Value("${jwt.secret.b64}") String secret){
     secretKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
     parser = Jwts.parser()
             .verifyWith((SecretKey)secretKey)

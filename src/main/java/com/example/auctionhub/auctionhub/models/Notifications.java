@@ -33,6 +33,7 @@ public class Notifications {
         ITEM_WON,
         ITEM_LOST,
         PAYMENT_RECEIVED,
+        ITEM_ENDED
     }
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

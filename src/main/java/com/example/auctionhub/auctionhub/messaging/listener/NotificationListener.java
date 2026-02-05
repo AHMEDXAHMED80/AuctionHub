@@ -8,17 +8,20 @@ import com.example.auctionhub.auctionhub.models.Notifications;
 import com.example.auctionhub.auctionhub.models.User;
 import com.example.auctionhub.auctionhub.repository.NotificationRepository;
 import com.example.auctionhub.auctionhub.repository.UserRepository;
-
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class NotificationListener {
-    
+
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+
+    public NotificationListener(NotificationRepository notificationRepository,
+                                UserRepository userRepository) {
+        this.notificationRepository = notificationRepository;
+        this.userRepository = userRepository;
+    }
 
     @RabbitListener(queues = "notification.queue")
     public void handleNotification(NotificationMessage message){

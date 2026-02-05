@@ -53,19 +53,22 @@ public class RateLimitFilter implements Filter {
         } else {
             HttpServletResponse httpResponse = (HttpServletResponse) response;
             httpResponse.setStatus(429);
+            httpResponse.setContentType("application/json");
             long nanosWait = bucket.estimateAbilityToConsume(1).getNanosToWaitForRefill();
             long secondsWait = nanosWait / 1_000_000_000;
+            String retryAfter;
             if (secondsWait >= 60) {
-                
                 long minutesWait = secondsWait / 60;
                 httpResponse.setHeader("X-Rate-Limit-Retry-After-Minutes", String.valueOf(minutesWait));
-
+                retryAfter = minutesWait + " minute" + (minutesWait > 1 ? "s" : "");
             } else {
-                
-                long displaySeconds = Math.max(1, secondsWait); 
+                long displaySeconds = Math.max(1, secondsWait);
                 httpResponse.setHeader("X-Rate-Limit-Retry-After-Seconds", String.valueOf(displaySeconds));
+                retryAfter = displaySeconds + " second" + (displaySeconds > 1 ? "s" : "");
             }
-            httpResponse.getWriter().write("Too Many Requests");
+            httpResponse.getWriter().write(
+                    "{\"error\":\"Too many requests. Please try again after " + retryAfter + ".\"}");
+
         }
     }
 }

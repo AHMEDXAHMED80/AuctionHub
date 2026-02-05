@@ -7,6 +7,7 @@ import com.example.auctionhub.auctionhub.dto.ItemResponse;
 import com.example.auctionhub.auctionhub.models.ItemImages;
 import com.example.auctionhub.auctionhub.dto.ItemSellerRequest;
 import com.example.auctionhub.auctionhub.service.ItemsSellerService;
+import com.example.auctionhub.auctionhub.service.ItemImageService;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
@@ -20,11 +21,25 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 /**
  * Controller for handling item endpoints, including creation, editing, and retrieval for sellers.
- * Delegates business logic to ItemsSellerService.
+ * Delegates business logic to ItemsSellerService and ItemImageService.
  */
 @RestController
 @RequestMapping(ApiConstants.ITEM_BASE)
 public class ItemController {
+
+    private final ItemsSellerService itemsService;
+    private final ItemImageService itemImageService;
+
+    /**
+     * Constructs an ItemController with required dependencies.
+     *
+     * @param itemsService Service for item business logic
+     * @param itemImageService Service for item image operations
+     */
+    public ItemController(ItemsSellerService itemsService, ItemImageService itemImageService) {
+        this.itemsService = itemsService;
+        this.itemImageService = itemImageService;
+    }
 
         // GET /api/items/user - get all items listed by the current user
     /**
@@ -36,16 +51,6 @@ public class ItemController {
     public ResponseEntity<List<ItemResponse>> getAllItemsForCurrentUser() {
         List<ItemResponse> items = itemsService.getAllItemsForCurrentUser();
         return ResponseEntity.ok(items);
-    }
-    private final ItemsSellerService itemsService;
-
-    /**
-     * Constructs an ItemController with required ItemsSellerService dependency.
-     *
-     * @param itemsService Service for item business logic
-     */
-    public ItemController(ItemsSellerService itemsService) {
-        this.itemsService = itemsService;
     }
 
     /**
@@ -73,7 +78,7 @@ public class ItemController {
             @PathVariable Long imageId,
             @Valid @RequestBody ItemSellerRequest request) {
 
-        ItemImages updatedImage = itemsService.replaceImage(imageId, itemId, request);
+        ItemImages updatedImage = itemImageService.replaceImage(imageId, itemId, request);
         return ResponseEntity.ok(updatedImage);
     }
 
@@ -83,7 +88,7 @@ public class ItemController {
             @PathVariable Long imageId
     ) {
 
-        List<ItemImages> DeletedImage = itemsService.removeImageById(imageId, itemId);
+        List<ItemImages> DeletedImage = itemImageService.removeImageById(imageId, itemId);
         return ResponseEntity.ok(DeletedImage);
     }
 
@@ -92,10 +97,10 @@ public class ItemController {
     public ResponseEntity<Void> swapImageIndex(@PathVariable Long itemId,
                                             @RequestParam int fIndex,
                                             @RequestParam int sIndex) {
-        itemsService.swipeImageIndex(itemId, fIndex, sIndex);
+        itemImageService.swipeImageIndex(itemId, fIndex, sIndex);
         return ResponseEntity.noContent().build();
     }
 
-    
-    
+
+
 }

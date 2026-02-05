@@ -4,15 +4,16 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import com.example.auctionhub.auctionhub.events.dto.BidEvent;
-
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class BidEventProducer {
     private final KafkaTemplate<String, BidEvent> kafkaTemplate;
+
+    public BidEventProducer(KafkaTemplate<String, BidEvent> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
     private static final String BID_TOPIC = "bid.events";
 
     public void publishBidEvent(BidEvent bidEvent) {

@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import com.example.auctionhub.auctionhub.models.Bid;
 import com.example.auctionhub.auctionhub.models.Item;
+import com.example.auctionhub.auctionhub.models.User;
 
 import jakarta.transaction.Transactional;
 
@@ -39,14 +40,17 @@ public interface BidRepository extends JpaRepository<Bid, Long> {
     @Query("SELECT count(B) FROM Bid B WHERE B.item.id IN(:itemIds) GROUP BY B.item.id")
     List<Object[]> countByItemId(@Param("itemIds") List<Long> itemIds);
 
-    @Query("SELECT MAX(b.bidAmount) From Bid B WHERE B.item.id = :itemId")
+    @Query("SELECT MAX(b.bidAmount) FROM Bid b WHERE b.item.id = :itemId")
     BigDecimal findMaxBidAmountByitemId(@Param("itemId") Long itemId);
 
-    @Query("SELECT b FROM Bid b WHERE b.item.id IN :itemIds AND b.currentHighestBid = true")
+    @Query("SELECT b FROM Bid b WHERE b.item.id IN :itemIds AND b.isCurrentHighestBid = true")
     List<Bid> findHighestBidsByItemIds(@Param("itemIds") List<Long> itemIds);
 
     @Modifying
     @Transactional
     @Query("UPDATE Bid b SET b.isCurrentHighestBid = false WHERE b.item.id = :itemId AND b.isCurrentHighestBid = true")
     int resetCurrentHighestBid(@Param("itemId") Long itemId);
+
+    @Query("SELECT DISTINCT b.user FROM Bid b WHERE b.item.id = :itemId")
+    List<User> findAllUserByItemid(@Param("itemId") Long itemId);
 }
