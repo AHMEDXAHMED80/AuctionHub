@@ -1,6 +1,6 @@
 # AuctionHub
 
-A scalable real-time auction platform built with Spring Boot 4, featuring secure authentication, integrated payments, and event-driven architecture.
+A scalable real-time auction platform built with **Spring Boot 4** and **Java 21**, featuring dual message broker architecture (Kafka + RabbitMQ), Stripe payment integration, and Redis-powered caching.
 
 ## Table of Contents
 
@@ -21,47 +21,60 @@ A scalable real-time auction platform built with Spring Boot 4, featuring secure
 
 ## Overview
 
-AuctionHub is a robust backend platform that enables users to list items for auction, place bids, and manage payments through an integrated wallet system. The platform leverages modern event-driven patterns with Kafka and RabbitMQ for real-time bid processing and notifications.
+AuctionHub is a production-grade backend platform that enables users to list items for auction, place real-time bids, and manage payments through an integrated wallet system. The platform leverages a **dual message broker architecture** — Apache Kafka for high-throughput bid event streaming and RabbitMQ for reliable notification delivery — alongside Redis for caching, token management, and real-time leaderboards.
 
 ## Features
 
 ### Authentication & Authorization
-- JWT-based stateless authentication with access and refresh tokens
+- JWT-based stateless authentication with access and refresh token rotation
 - Secure HTTP-only cookie storage for tokens
-- Token blacklisting and rotation with Redis
+- Token blacklisting via Redis (instant revocation on logout)
+- Active token tracking with Redis for session management
 - Role-based access control (USER, POSTER, ADMIN)
 - BCrypt password encryption
 
 ### Auction Management
 - Create and manage auction listings with multiple images
 - Support for 13 item categories (Electronics, Furniture, Art, Vehicles, etc.)
-- Auction lifecycle management (PENDING, ACTIVE, EXPIRED, SOLD, CANCELLED)
+- Full auction lifecycle management (PENDING → ACTIVE → PROCESSING → SOLD/EXPIRED/CANCELLED)
+- Automated auction expiration via scheduled cron job with batch processing
+- Automatic winner determination through Kafka event pipeline
 - Image ordering and swapping capabilities
 
 ### Bidding System
-- Real-time bid placement and validation
-- Wallet balance verification before bidding
+- Real-time bid placement with Kafka event streaming
+- Wallet balance verification and fund freezing before bid placement
 - Bid status tracking (ACTIVE, WON, LOST, CANCELLED)
-- Auction winner determination
+- Bid history per item and per user
+- Active/inactive bid filtering
+- Real-time winning status checks
 
 ### Payment & Wallet System
 - Stripe integration for secure payment processing
-- Webhook handling for asynchronous payment events
+- Asynchronous webhook handling for payment confirmation
 - User wallet with available and frozen balance tracking
-- Payment history and refund capabilities
+- Fund freezing on bid placement, release on loss
+- Payment history with full lifecycle (PENDING → COMPLETED/FAILED/REFUNDED)
 - Support for top-ups up to $10,000 per transaction
 
 ### Event-Driven Architecture
-- Apache Kafka for bid event streaming
-- RabbitMQ for notifications and email delivery
-- WebSocket support for real-time updates
+- **Apache Kafka** for bid event streaming (producer → consumer pipeline)
+- **Kafka** for auction-ended events triggering winner determination
+- **RabbitMQ** for notification delivery (email, in-app)
+- **WebSocket** support for real-time bid updates to connected clients
+
+### Real-Time Features
+- Redis Sorted Sets (`ZSET`) for tracking top viewed items leaderboard
+- WebSocket integration for live bid notifications
+- Top 5 most viewed items endpoint with ranking
 
 ### Security & Rate Limiting
-- CSRF protection with cookie-based tokens
+- CSRF protection with cookie-based tokens (smart bypass for Bearer auth & webhooks)
 - IP-based rate limiting using Bucket4j
   - Auth endpoints: 10 requests per 30 minutes
   - General endpoints: 100 requests per 30 minutes
 - CORS configuration for frontend integration
+- Global exception handling with consistent error responses
 
 ## Tech Stack
 
@@ -69,18 +82,20 @@ AuctionHub is a robust backend platform that enables users to list items for auc
 |----------|------------|
 | Language | Java 21 |
 | Framework | Spring Boot 4.0 |
-| Database | PostgreSQL |
-| Caching | Redis |
-| Message Queue | RabbitMQ |
+| Database | PostgreSQL 15 |
+| Caching & Sessions | Redis 7 |
+| Message Queue | RabbitMQ 3 |
 | Event Streaming | Apache Kafka |
 | Payments | Stripe API |
 | Authentication | JWT (jjwt 0.12.6) |
 | ORM | Spring Data JPA / Hibernate |
 | Validation | Jakarta Validation |
-| Mapping | MapStruct 1.5.5 |
-| Rate Limiting | Bucket4j |
+| Object Mapping | MapStruct 1.5.5 |
+| Rate Limiting | Bucket4j 8.16 |
+| Reverse Proxy | Nginx |
 | Build Tool | Maven |
 | Containerization | Docker Compose |
+| Monitoring | Spring Actuator |
 
 ## Architecture
 
@@ -89,29 +104,55 @@ AuctionHub is a robust backend platform that enables users to list items for auc
 │                              Client Applications                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                        │
+                                    (HTTPS)
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │      Nginx       │
+                              │  (Reverse Proxy) │
+                              └────────┬────────┘
+                                       │
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Spring Boot Application                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │   Auth      │  │   Item      │  │  Payment    │  │  Stripe Webhook     │ │
-│  │ Controller  │  │ Controller  │  │ Controller  │  │    Controller       │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
-│         │                │                │                     │            │
-│  ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐  ┌──────────▼──────────┐ │
-│  │   Auth      │  │   Items     │  │  Payment    │  │     Stripe          │ │
-│  │  Service    │  │  Service    │  │  Service    │  │     Service         │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
-│         │                │                │                     │            │
-│  ┌──────▼────────────────▼────────────────▼─────────────────────▼──────────┐│
-│  │                         Repository Layer (JPA)                           ││
+│                                                                              │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
+│  │  Auth    │ │  Item    │ │   Bid    │ │ Wallet   │ │ Payment  │          │
+│  │Controller│ │Controller│ │Controller│ │Controller│ │Controller│          │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘          │
+│       │             │            │             │            │                │
+│  ┌────▼─────────────▼────────────▼─────────────▼────────────▼──────────────┐│
+│  │                        Service Layer                                     ││
+│  │  AuthService │ ItemService │ BidService │ WalletService │ PaymentService ││
+│  │              │ AuctionScheduler │ AuctionWinnerService │ ItemImageService││
+│  └────────┬─────────────────────────────────────────────────┬──────────────┘│
+│           │                                                 │               │
+│  ┌────────▼─────────────────────────────────────────────────▼──────────────┐│
+│  │                       Repository Layer (JPA)                             ││
 │  └──────────────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────────┘
-         │                                                    │
-         ▼                                                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐
-│   PostgreSQL    │  │     Redis       │  │    RabbitMQ     │  │    Kafka    │
-│   (Database)    │  │    (Cache)      │  │  (Messaging)    │  │ (Streaming) │
-└─────────────────┘  └─────────────────┘  └─────────────────┘  └─────────────┘
+└─────────┬───────────────────────────────────────────────────────────────────┘
+          │                    │                    │                │
+          ▼                    ▼                    ▼                ▼
+┌──────────────┐  ┌──────────────────┐  ┌──────────────┐  ┌──────────────────┐
+│  PostgreSQL  │  │      Redis       │  │   RabbitMQ   │  │     Kafka        │
+│  (Database)  │  │ (Cache/Tokens/   │  │(Notifications│  │ (Bid Events /    │
+│              │  │  Leaderboards)   │  │  & Emails)   │  │  Auction Events) │
+└──────────────┘  └──────────────────┘  └──────────────┘  └──────────────────┘
+```
+
+### Event Flow: Bid Placement
+```
+User places bid → BidController → BidService (validates + freezes funds)
+    → KafkaProducer (BidEvent) → KafkaConsumer → Updates bid record
+    → RabbitMQ Publisher → NotificationListener → Stores notification
+```
+
+### Event Flow: Auction Expiration
+```
+Cron Job (every minute) → AuctionSchedulerService
+    → Finds expired auctions → Batch updates to PROCESSING status
+    → KafkaProducer (AuctionEndedEvent) → AuctionEndedConsumer
+    → AuctionWinnerService → Determines winner, updates statuses, handles funds
 ```
 
 ## Getting Started
@@ -198,16 +239,38 @@ auth.cookie.sameSite=Lax
 | GET | `/api/auth/check-username/{username}` | Check username availability |
 | GET | `/api/auth/check-email/{email}` | Check email availability |
 
-### Items
+### Items (Seller)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/items/user` | Get current user's items |
-| POST | `/api/items` | Create new item |
+| POST | `/api/items` | Create new item listing |
+| GET | `/api/items/user` | Get current seller's items |
 | PUT | `/api/items/{itemId}` | Edit item details |
 | PUT | `/api/items/{itemId}/images/{imageId}` | Replace item image |
 | DELETE | `/api/items/{itemId}/images/{imageId}` | Remove item image |
 | POST | `/api/items/{itemId}/images/swap` | Swap image positions |
+
+### Bids
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/bids` | Place a bid on an item |
+| GET | `/api/bids/item/{itemId}` | Get bid history for an item |
+| GET | `/api/bids/my-bids` | Get all bids by current user |
+| GET | `/api/bids/item/{itemId}/highest` | Get current highest bid |
+| GET | `/api/bids/item/{itemId}/am-i-winning` | Check if user is winning |
+| GET | `/api/bids/item/{itemId}/winner` | Get current highest bidder username |
+| GET | `/api/bids/active` | Get user's active bids |
+| GET | `/api/bids/history` | Get user's ended auction bids |
+
+### Wallet
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/wallet` | Get wallet info |
+| POST | `/api/wallet` | Create wallet |
+| POST | `/api/wallet/deposit` | Add balance to wallet |
+| GET | `/api/wallet/balance` | Get balance summary (available + frozen) |
 
 ### Payments
 
@@ -238,9 +301,11 @@ src/main/java/com/example/auctionhub/auctionhub/
 ├── constants/                  # API constants and endpoints
 ├── controller/                 # REST controllers
 │   ├── AuthController.java
+│   ├── BidController.java
 │   ├── ItemController.java
 │   ├── PaymentController.java
-│   └── StripeWebhookController.java
+│   ├── StripeWebhookController.java
+│   └── WalletController.java
 ├── dto/                        # Data Transfer Objects
 ├── events/                     # Event handling
 │   ├── consumer/               # Kafka consumers
@@ -262,13 +327,24 @@ src/main/java/com/example/auctionhub/auctionhub/
 ├── ratelimiter/                # Rate limiting
 ├── redis/                      # Redis services
 │   ├── TokenActiveList.java
-│   └── TokenBlackListService.java
+│   ├── TokenBlackListService.java
+│   └── TrackTopViewedItems.java
 ├── repository/                 # Spring Data repositories
 ├── security/                   # Security utilities
 │   ├── JwtAuthenticationFilter.java
 │   ├── JwtUtil.java
 │   └── SecurityUtils.java
 └── service/                    # Business logic services
+    ├── AuthService.java
+    ├── AuctionSchedulerService.java
+    ├── AuctionWinnerService.java
+    ├── BidService.java
+    ├── ItemBidderService.java
+    ├── ItemImageService.java
+    ├── ItemsSellerService.java
+    ├── PaymentService.java
+    ├── StripeService.java
+    └── WalletService.java
 ```
 
 ## Infrastructure Services
@@ -277,12 +353,13 @@ src/main/java/com/example/auctionhub/auctionhub/
 
 | Service | Port | Description |
 |---------|------|-------------|
+| Nginx | 80 | Reverse proxy with WebSocket support |
+| Spring Boot App | 8080 | Application server |
 | PostgreSQL | 5432 | Primary database |
-| Redis | 6379 | Token caching and blacklisting |
+| Redis | 6379 | Token caching, session management, leaderboards |
 | RabbitMQ | 5672, 15672 | Message queue (15672 for management UI) |
 | Zookeeper | 2181 | Kafka coordination |
 | Kafka | 9092 | Event streaming |
-| Kafka UI | 8080 | Kafka management interface |
 
 ### Accessing Management UIs
 
@@ -314,13 +391,22 @@ src/main/java/com/example/auctionhub/auctionhub/
 
 ## Roadmap
 
-- [ ] Implement `BidController` for bidding API endpoints
-- [ ] Add `WalletController` for wallet management
-- [ ] Complete WebSocket integration for real-time bid updates
-- [ ] Add auction scheduling and automatic expiration
-- [ ] Implement email notifications via RabbitMQ
-- [ ] Add comprehensive test coverage
+- [x] JWT authentication with token rotation and Redis blacklisting
+- [x] Bid placement with Kafka event streaming
+- [x] Wallet system with Stripe payment integration
+- [x] Automated auction expiration and winner determination
+- [x] RabbitMQ notification pipeline
+- [x] Redis-powered top viewed items leaderboard
+- [x] IP-based rate limiting with Bucket4j
+- [x] Docker Compose deployment with Nginx reverse proxy
+- [ ] Public item browsing and search endpoints
+- [ ] Elasticsearch full-text search integration
+- [ ] Email verification and password reset
+- [ ] Auto-bidding system
+- [ ] Admin dashboard endpoints
+- [ ] Comprehensive test coverage (unit + integration)
 - [ ] API documentation with OpenAPI/Swagger
+- [ ] CI/CD pipeline with GitHub Actions
 
 ## License
 
