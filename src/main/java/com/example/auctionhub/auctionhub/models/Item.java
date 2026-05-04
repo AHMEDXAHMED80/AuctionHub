@@ -88,7 +88,7 @@ public class Item {
      * Winner records for this item (could be multiple if relisted)
      */
     @OneToMany(mappedBy = "item")
-    private List<AuctionWinner> winners;
+    private List<AuctionWinner> winner;
     
     private LocalDateTime startDate;
     

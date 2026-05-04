@@ -1,6 +1,7 @@
 package com.example.auctionhub.auctionhub.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.auctionhub.auctionhub.models.AuctionWinner;
@@ -124,6 +125,7 @@ public class AuctionWinnerService {
             auctionWinner.setWinningBid(bid);
             auctionWinner.setStatus(WinnerStatus.FUNDS_TRANSFERRED);
             auctionWinner.setWonAt(item.getEndDate());
+            auctionWinner.setFundsTransferredAt(LocalDateTime.now());
             auctionWinnerRepository.save(auctionWinner);
             log.info("Saving auction winner for item {}", item.getId());
         } catch (Exception e) {
@@ -150,6 +152,7 @@ public class AuctionWinnerService {
             auctionWinner.setWinningBid(bid);
             auctionWinner.setStatus(WinnerStatus.TRANSFER_FAILED);
             auctionWinner.setWonAt(item.getEndDate());
+            auctionWinner.setFundsTransferredAt(LocalDateTime.now());
             auctionWinnerRepository.save(auctionWinner);
             log.info("Saved auction winner with TRANSFER_FAILED status for item {}", item.getId());
         } catch (Exception e) {

@@ -45,6 +45,7 @@ public class Notifications {
 
     @Enumerated(EnumType.STRING)
     private NotificationType type;
+    private String message;
 
     private LocalDateTime createdAt;
     

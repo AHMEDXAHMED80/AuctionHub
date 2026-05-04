@@ -16,6 +16,10 @@ public class SecurityUtils {
         if (principal instanceof User) {
             return (User) principal;
         }
+        Object details = authentication.getDetails();
+        if (details instanceof User) {
+            return (User) details;
+        }
         // If using a custom UserDetails, adapt this section:
         // if (principal instanceof CustomUserDetails) {
         //     return ((CustomUserDetails) principal).getUser();

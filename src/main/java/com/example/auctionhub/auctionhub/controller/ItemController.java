@@ -1,9 +1,12 @@
 package com.example.auctionhub.auctionhub.controller;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.auctionhub.auctionhub.constants.ApiConstants;
 import com.example.auctionhub.auctionhub.dto.ItemResponse;
+import com.example.auctionhub.auctionhub.dto.ListResponse;
 import com.example.auctionhub.auctionhub.models.ItemImages;
 import com.example.auctionhub.auctionhub.dto.ItemSellerRequest;
 import com.example.auctionhub.auctionhub.service.ItemsSellerService;
@@ -48,9 +51,11 @@ public class ItemController {
      * @return List of ItemResponse DTOs for the user's items
      */
     @org.springframework.web.bind.annotation.GetMapping("/user")
-    public ResponseEntity<List<ItemResponse>> getAllItemsForCurrentUser() {
-        List<ItemResponse> items = itemsService.getAllItemsForCurrentUser();
-        return ResponseEntity.ok(items);
+    public ResponseEntity<ListResponse<ItemResponse>> getAllItemsForCurrentUser(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Page<ItemResponse> items = itemsService.getAllItemsForCurrentUser(PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(items));
     }
 
     /**

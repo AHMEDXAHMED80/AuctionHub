@@ -124,7 +124,7 @@ public class AuthService {
         String jti= jwtUtil.extractId(refreshToken);
         Instant exp = Instant.ofEpochMilli(jwtUtil.exctractExpireTime(refreshToken));
         Duration ttl = Duration.between(Instant.now(),exp );
-        tokenActiveList.storeActiveRefreshToken(user.getId(), jti, ttl);
+        tokenActiveList.storeActiveRefreshToken(savedUser.getId(), jti, ttl);
 
         return new AuthInternalResult(savedUser.getId(), savedUser.getUsername(), accessToken, refreshToken); 
     }

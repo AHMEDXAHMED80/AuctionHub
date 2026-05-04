@@ -11,11 +11,13 @@ import com.example.auctionhub.auctionhub.service.StripeService;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Controller for handling Stripe webhook events
  * Receives payment notifications from Stripe and processes them
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/stripe")
 public class StripeWebhookController {
@@ -47,28 +49,23 @@ public class StripeWebhookController {
             // Verify webhook signature to ensure it's from Stripe
             event = Webhook.constructEvent(payload, signatureHeader, webhookSecret);
         } catch (SignatureVerificationException e) {
-            // Invalid signature - this is not from Stripe
-            System.err.println("⚠️ Webhook signature verification failed: " + e.getMessage());
+            log.warn("Webhook signature verification failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Invalid signature");
         } catch (Exception e) {
-            System.err.println("⚠️ Error parsing webhook payload: " + e.getMessage());
+            log.warn("Error parsing webhook payload: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Invalid payload");
         }
-        
-        // Log received event
-        System.out.println("📨 Received webhook event: " + event.getType() + 
-                          " (ID: " + event.getId() + ")");
-        
+
+        log.info("Received webhook event: {} (ID: {})", event.getType(), event.getId());
+
         // Process the event
         try {
             stripeService.handleStripeEvent(event);
             return ResponseEntity.ok("Event processed successfully");
         } catch (Exception e) {
-            // Log error but still return 200 to prevent Stripe from retrying
-            System.err.println("❌ Error processing webhook event: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error processing webhook event: {}", e.getMessage(), e);
             
             // Return 200 OK to acknowledge receipt even if processing failed
             // This prevents Stripe from retrying the same event

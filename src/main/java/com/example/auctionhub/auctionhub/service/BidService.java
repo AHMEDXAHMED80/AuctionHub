@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import com.example.auctionhub.auctionhub.dto.BidResponse;
 import com.example.auctionhub.auctionhub.dto.ItemBidderResponse;
@@ -124,7 +126,9 @@ public class BidService {
             if (wallet == null) {
                 log.error("User {} does not have a wallet", user.getId());
                 throw new RuntimeException("You don't have a wallet. Create a wallet first");
-            }            
+            }
+
+            Bid prevHighBid = bidRepository.findHighestBidByItemId(itemId).orElse(null);
 
             // Validate bid
             log.info("Validating bid for user {} on item {}", user.getId(), itemId);
@@ -132,6 +136,7 @@ public class BidService {
             handleBidWalletTransactions(itemId, user, bidAmount);
 
             log.info("creating the bid");
+
 
             Bid bid = new Bid();
             bid.setItem(item);
@@ -155,7 +160,8 @@ public class BidService {
                 user.getUsername(),
                 bidAmount,
                 LocalDateTime.now(),
-                item.getTitle()
+                item.getTitle(),
+                prevHighBid != null ? prevHighBid.getUser().getId() : null
             );
 
             bidEventProducer.publishBidEvent(bidEvent);
@@ -194,11 +200,11 @@ public class BidService {
      * @param itemId ID of the item to retrieve bid history for
      * @return List of bid responses containing bid details
      */
-    public List<BidResponse> getBidhistory(Long itemId) {
+    public Page<BidResponse> getBidhistory(Long itemId, Pageable pageable) {
         log.debug("Retrieving bid history for item {}", itemId);
-        List<Bid> bids = bidRepository.findByItemId(itemId);
-        log.info("Found {} bids for item {}", bids.size(), itemId);
-        return bids.stream().map(bidMapper::toBidResponse).toList();
+        Page<Bid> bids = bidRepository.findByItemId(itemId, pageable);
+        log.info("Found {} bids for item {}", bids.getTotalElements(), itemId);
+        return bids.map(bidMapper::toBidResponse);
     }
 
     /**
@@ -207,13 +213,13 @@ public class BidService {
      *
      * @return List of bid responses for the authenticated user
      */
-    public List<BidResponse> getUserBids() {
+    public Page<BidResponse> getUserBids(Pageable pageable) {
         User user = SecurityUtils.getAuthenticatedUserOrThrow();
         Long userId = user.getId();
         log.debug("Retrieving all bids for user {}", userId);
-        List<Bid> bids = bidRepository.findByUserId(userId);
-        log.info("Found {} bids for user {}", bids.size(), userId);
-        return bids.stream().map(bidMapper::toBidResponse).toList();
+        Page<Bid> bids = bidRepository.findByUserId(userId, pageable);
+        log.info("Found {} bids for user {}", bids.getTotalElements(), userId);
+        return bids.map(bidMapper::toBidResponse);
     }
 
     /**
@@ -271,36 +277,28 @@ public class BidService {
      *
      * @return List of item responses with bidding information
      */
-    public List<ItemBidderResponse> getUserActiveBids() {
+    public Page<ItemBidderResponse> getUserActiveBids(Pageable pageable) {
        User user = SecurityUtils.getAuthenticatedUserOrThrow();
        log.debug("Retrieving active bids for user {}", user.getId());
-       
-       // Fetch all active items the user has bid on
-       List<Item> activeItems = bidRepository.findUserActiveBids(user.getId(), ItemStatus.ACTIVE);
-       log.info("Found {} active items with bids from user {}", activeItems.size(), user.getId());
-       
-       if (activeItems.isEmpty()) {
-           return List.of();
+
+       Page<Item> activeItemsPage = bidRepository.findUserActiveBids(user.getId(), ItemStatus.ACTIVE, pageable);
+       log.info("Found {} active items with bids from user {}", activeItemsPage.getTotalElements(), user.getId());
+
+       if (activeItemsPage.isEmpty()) {
+           return Page.empty(pageable);
        }
-       
-       List<Long> itemIds = activeItems.stream().map(Item::getId).toList();
-       // Batch fetch bid counts to avoid N+1 queries
+
+       List<Long> itemIds = activeItemsPage.getContent().stream().map(Item::getId).toList();
        Map<Long, Long> bidCountsMap = getBidCountsForItems(itemIds);
-        
-       return activeItems.stream().map(item -> {
-            // Map item to response
+
+       return activeItemsPage.map(item -> {
             ItemBidderResponse response = itemBidderMapper.toItemBidderResponse(item);
-            
-            // Set current highest bid
             if (item.getCurrentHighestBid() != null) {
                 response.setCurrentHighestBid(item.getCurrentHighestBid());
             }
-
-            // Set total bid count for this item
-            Long bidCount = bidCountsMap.getOrDefault(item.getId(), 0L);
-            response.setTotalBids(bidCount);
+            response.setTotalBids(bidCountsMap.getOrDefault(item.getId(), 0L));
             return response;
-        }).toList();
+        });
     }
 
     /**
@@ -310,50 +308,38 @@ public class BidService {
      *
      * @return List of user bid history responses with item details and outcome
      */
-    public List<UserBidHistoryResponse> getUserunActiveBids() {
+    public Page<UserBidHistoryResponse> getUserunActiveBids(Pageable pageable) {
         User user = SecurityUtils.getAuthenticatedUserOrThrow();
         log.debug("Retrieving bid history for user {}", user.getId());
-        
-        // Get all items the user has bid on
-        List<Item> userHistoryBidsItems = bidRepository.findUserBidHistoryItems(user.getId());
-        log.info("Found {} items in bid history for user {}", userHistoryBidsItems.size(), user.getId());
-        
-        if (userHistoryBidsItems.isEmpty()) {
+
+        Page<Item> userHistoryBidsItemsPage = bidRepository.findUserBidHistoryItems(user.getId(), pageable);
+        log.info("Found {} items in bid history for user {}", userHistoryBidsItemsPage.getTotalElements(), user.getId());
+
+        if (userHistoryBidsItemsPage.isEmpty()) {
             log.debug("No bid history found for user {}", user.getId());
-            return List.of();
+            return Page.empty(pageable);
         }
-        
-        List<Long> userHistoryBidsItemId = userHistoryBidsItems.stream().map(Item::getId).toList();
-        
-        // Batch fetch to avoid N+1 problem
+
+        List<Long> userHistoryBidsItemId = userHistoryBidsItemsPage.getContent().stream().map(Item::getId).toList();
+
         log.debug("Batch fetching images and highest bids for {} items", userHistoryBidsItemId.size());
         Map<Long, String> urlsForImagesFirstIndex = itemImageService.getFirstImageIndexForAllItems(userHistoryBidsItemId);
         List<Bid> highestBids = bidRepository.findHighestBidsByItemIds(userHistoryBidsItemId);
         Map<Long, Bid> highestBidsMap = highestBids.stream()
             .collect(Collectors.toMap(bid -> bid.getItem().getId(), bid -> bid));
 
-        return userHistoryBidsItems.stream().map(item -> {
+        return userHistoryBidsItemsPage.map(item -> {
             Long itemId = item.getId();
             String imageUrl = urlsForImagesFirstIndex.getOrDefault(itemId, "");
-            String itemTitle = item.getTitle();
             BigDecimal lastBidAmount = item.getCurrentHighestBid();
-            LocalDateTime endedAt = item.getEndDate();
-            
-            // Determine if user won or lost by checking if they are the highest bidder
             Bid highestBid = highestBidsMap.get(itemId);
-            bidStatus status = (highestBid != null && highestBid.getUser().getId().equals(user.getId())) 
-                ? bidStatus.ACTIVE  // User is winning
-                : bidStatus.LOST;   // User was outbid
+            bidStatus status = (highestBid != null && highestBid.getUser().getId().equals(user.getId()))
+                ? bidStatus.ACTIVE
+                : bidStatus.LOST;
 
             return userBidHistoryMapper.toUserBidHistoryResponse(
-                itemId, 
-                itemTitle, 
-                imageUrl, 
-                lastBidAmount.toString(), 
-                status,
-                endedAt
-            );
-        }).toList();
+                itemId, item.getTitle(), imageUrl, lastBidAmount.toString(), status, item.getEndDate());
+        });
     }
 
     private void validateBid(Item item, BigDecimal bidAmount, User user) {

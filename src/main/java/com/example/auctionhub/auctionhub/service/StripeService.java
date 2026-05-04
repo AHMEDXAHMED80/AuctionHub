@@ -3,6 +3,8 @@ package com.example.auctionhub.auctionhub.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.example.auctionhub.auctionhub.events.dto.PaymentLifecycleEvent;
+import com.example.auctionhub.auctionhub.events.producer.PaymentLifecycleProducer;
 import com.example.auctionhub.auctionhub.models.Payment;
 import com.example.auctionhub.auctionhub.repository.PaymentRepository;
 import com.stripe.Stripe;
@@ -15,6 +17,8 @@ import com.stripe.param.RefundCreateParams;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 
 /**
  * Service for integrating with Stripe payment APIs.
@@ -38,10 +42,15 @@ public class StripeService {
     
     private final PaymentRepository paymentRepository;
     private final WalletService walletService;
+    private final PaymentLifecycleProducer paymentLifecycleProducer;
     
-    public StripeService(PaymentRepository paymentRepository, WalletService walletService) {
+    public StripeService(
+            PaymentRepository paymentRepository,
+            WalletService walletService,
+            PaymentLifecycleProducer paymentLifecycleProducer) {
         this.paymentRepository = paymentRepository;
         this.walletService = walletService;
+        this.paymentLifecycleProducer = paymentLifecycleProducer;
     }
     
     @PostConstruct
@@ -74,6 +83,7 @@ public class StripeService {
             .setAutomaticPaymentMethods(
                 PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
                     .setEnabled(true)
+                    .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
                     .build()
             )
             .putMetadata("userId", userId.toString())
@@ -142,7 +152,12 @@ public class StripeService {
         }
         
         if (reason != null && !reason.isEmpty()) {
-            paramsBuilder.setReason(RefundCreateParams.Reason.REQUESTED_BY_CUSTOMER);
+            try {
+                paramsBuilder.setReason(RefundCreateParams.Reason.valueOf(reason.toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                // Unrecognised reason string — fall back to the default
+                paramsBuilder.setReason(RefundCreateParams.Reason.REQUESTED_BY_CUSTOMER);
+            }
         }
         
         return Refund.create(paramsBuilder.build());
@@ -171,7 +186,7 @@ public class StripeService {
         if (stripeAmount == null) {
             throw new IllegalArgumentException("Stripe amount cannot be null");
         }
-        return new BigDecimal(stripeAmount).divide(new BigDecimal("100"));
+        return new BigDecimal(stripeAmount).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -229,23 +244,48 @@ public class StripeService {
         BigDecimal amount = convertFromStripeAmount(amountInCents);
         String paymentIntentId = paymentIntent.getId();
         String currency = paymentIntent.getCurrency();
-        
-        log.info("✅ Payment succeeded for user {}, Amount: {} {}, PaymentIntent: {}", 
-                userId, amount, currency.toUpperCase(), paymentIntentId);
-        
+
+        if (userId == null || userId.isBlank()) {
+            log.error("❌ Missing userId metadata in PaymentIntent {}", paymentIntentId);
+            return;
+        }
+
+        long parsedUserId;
         try {
-            // Update payment status in database
+            parsedUserId = Long.parseLong(userId);
+        } catch (NumberFormatException e) {
+            log.error("❌ Invalid userId metadata '{}' in PaymentIntent {}", userId, paymentIntentId);
+            return;
+        }
+
+        log.info("✅ Payment succeeded for user {}, Amount: {} {}, PaymentIntent: {}",
+                userId, amount, currency.toUpperCase(), paymentIntentId);
+
+        try {
             Payment payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found for intent: " + paymentIntentId));
-            
+
+            if (payment.getPaymentStatus() == Payment.PaymentStatus.SUCCEEDED) {
+                log.info("Skipping duplicate payment_intent.succeeded for PaymentIntent {}", paymentIntentId);
+                return;
+            }
+
+            // Credit wallet BEFORE marking SUCCEEDED so that if crediting fails the
+            // payment stays in its previous state and the event can be replayed.
+            walletService.creditBalance(parsedUserId, amount);
+
             payment.setPaymentStatus(Payment.PaymentStatus.SUCCEEDED);
             paymentRepository.save(payment);
             
-            // Credit wallet - this is the ONLY place where successful payments credit the wallet
-            // Using userId from metadata ensures the correct user is credited
-            walletService.creditBalance(Long.parseLong(userId), amount);
-            
-            log.info("✅ Wallet credited successfully for user {}", userId);
+            log.info("✅ Wallet credited successfully for user {}", parsedUserId);
+
+            publishPaymentEvent(
+                    payment,
+                    PaymentLifecycleEvent.EventType.PAYMENT_SUCCEEDED,
+                    event.getId(),
+                    currency,
+                    null
+            );
             
             // TODO: Send confirmation email/notification
             // notificationService.sendPaymentConfirmation(Long.parseLong(userId), amount);
@@ -284,6 +324,14 @@ public class StripeService {
             paymentRepository.save(payment);
             
             log.info("✅ Payment {} marked as failed in database", paymentIntentId);
+
+            publishPaymentEvent(
+                    payment,
+                    PaymentLifecycleEvent.EventType.PAYMENT_FAILED,
+                    event.getId(),
+                    paymentIntent.getCurrency(),
+                    failureMessage
+            );
             
             // TODO: Notify user about failed payment
             // notificationService.sendPaymentFailedNotification(Long.parseLong(userId), failureMessage);
@@ -316,6 +364,14 @@ public class StripeService {
             paymentRepository.save(payment);
             
             log.info("✅ Payment {} marked as canceled in database", paymentIntentId);
+
+            publishPaymentEvent(
+                    payment,
+                    PaymentLifecycleEvent.EventType.PAYMENT_CANCELED,
+                    event.getId(),
+                    paymentIntent.getCurrency(),
+                    cancellationReason
+            );
         } catch (Exception e) {
             log.error("❌ Error processing payment cancellation for PaymentIntent {}: {}", paymentIntentId, e.getMessage(), e);
         }
@@ -342,6 +398,14 @@ public class StripeService {
             paymentRepository.save(payment);
             
             log.info("✅ Payment {} marked as processing in database", paymentIntentId);
+
+            publishPaymentEvent(
+                    payment,
+                    PaymentLifecycleEvent.EventType.PAYMENT_PROCESSING,
+                    event.getId(),
+                    paymentIntent.getCurrency(),
+                    null
+            );
         } catch (Exception e) {
             log.error("❌ Error updating payment to processing for PaymentIntent {}: {}", paymentIntentId, e.getMessage(), e);
         }
@@ -368,6 +432,11 @@ public class StripeService {
         try {
             Payment payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found for intent: " + paymentIntentId));
+
+            if (payment.getPaymentStatus() == Payment.PaymentStatus.REFUNDED) {
+                log.info("Skipping duplicate charge.refunded for PaymentIntent {}", paymentIntentId);
+                return;
+            }
             
             // Critical: Only deduct if payment was previously SUCCEEDED
             // This prevents deducting from wallet for failed/canceled payments that were refunded
@@ -380,6 +449,14 @@ public class StripeService {
             paymentRepository.save(payment);
             
             log.info("✅ Payment {} marked as refunded in database", paymentIntentId);
+
+            publishPaymentEvent(
+                    payment,
+                    PaymentLifecycleEvent.EventType.PAYMENT_REFUNDED,
+                    event.getId(),
+                    currency,
+                    null
+            );
             
             // TODO: Notify user about refund
             // notificationService.sendRefundConfirmation(payment.getUser().getId(), refundAmount);
@@ -432,6 +509,33 @@ public class StripeService {
             }
         } catch (Exception e) {
             log.error("❌ Error processing refund update for PaymentIntent {}: {}", paymentIntentId, e.getMessage(), e);
+        }
+    }
+
+    private void publishPaymentEvent(
+            Payment payment,
+            PaymentLifecycleEvent.EventType eventType,
+            String stripeEventId,
+            String currency,
+            String failureReason) {
+        try {
+            String resolvedCurrency = currency != null ? currency.toLowerCase() : defaultCurrency;
+            PaymentLifecycleEvent paymentEvent = new PaymentLifecycleEvent(
+                    eventType,
+                    payment.getId(),
+                    payment.getUser().getId(),
+                    payment.getAmount(),
+                    resolvedCurrency,
+                    payment.getStripePaymentIntentId(),
+                    stripeEventId,
+                    payment.getPaymentStatus().name(),
+                    failureReason,
+                    Instant.now()
+            );
+            paymentLifecycleProducer.publishPaymentEvent(paymentEvent);
+        } catch (Exception ex) {
+            log.error("Failed to publish payment lifecycle event for paymentId {}: {}",
+                    payment.getId(), ex.getMessage(), ex);
         }
     }
 }

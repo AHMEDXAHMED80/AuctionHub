@@ -13,6 +13,7 @@ import org.springframework.kafka.core.ProducerFactory;
 
 import com.example.auctionhub.auctionhub.events.dto.AuctionEndedEvent;
 import com.example.auctionhub.auctionhub.events.dto.BidEvent;
+import com.example.auctionhub.auctionhub.events.dto.PaymentLifecycleEvent;
 
 @Configuration
 public class KafkaProducerConfig {
@@ -37,6 +38,12 @@ public class KafkaProducerConfig {
         return new DefaultKafkaProducerFactory<>(getCommonProducerConfigs());
     }
 
+    @Bean
+    public ProducerFactory<String, PaymentLifecycleEvent>paymentProducerFactory(){
+                return new DefaultKafkaProducerFactory<>(getCommonProducerConfigs());
+
+    }
+
     // KafkaTemplate for bid events
     @Bean("bidKafkaTemplate")
     public KafkaTemplate<String, BidEvent> bidKafkaTemplate() {
@@ -48,6 +55,13 @@ public class KafkaProducerConfig {
     public KafkaTemplate<String, AuctionEndedEvent> auctionKafkaTemplate() {
         return new KafkaTemplate<>(auctionProducerFactory());
     }
+
+    @Bean("paymentKafkaTemplate")
+    public KafkaTemplate<String, PaymentLifecycleEvent>paymentKafkaTemplate(){
+        return new KafkaTemplate<>(paymentProducerFactory());
+    }
+
+    
 
 
 

@@ -41,6 +41,7 @@ public interface UserMapper {
     @Mapping(target = "sellerItems", ignore = true)
     @Mapping(target = "notifications", ignore = true)
     @Mapping(target = "version", ignore = true)
+    @Mapping(target = "auctionsWon", ignore = true)
     @Mapping(source = "firstName", target = "first_name")
     @Mapping(source = "lastName", target = "last_name")
     User authRegisterRequestToUser(AuthRegisterRequest request);

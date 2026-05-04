@@ -12,7 +12,6 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -47,9 +46,9 @@ public class Wallet {
     @NotNull
     private BigDecimal totalSpend=BigDecimal.ZERO;
     @Enumerated(EnumType.STRING)
-    @NotBlank
+    @NotNull
     private walletType walletType;
-    @NotBlank
+    @NotNull
     private BigDecimal frozenBalance = BigDecimal.ZERO;
     private LocalDateTime updatedAt;
 

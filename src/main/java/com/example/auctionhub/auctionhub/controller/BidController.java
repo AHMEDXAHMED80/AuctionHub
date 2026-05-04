@@ -1,18 +1,21 @@
 package com.example.auctionhub.auctionhub.controller;
 
 import java.math.BigDecimal;
-import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.auctionhub.auctionhub.dto.BidResponse;
 import com.example.auctionhub.auctionhub.dto.ItemBidderResponse;
+import com.example.auctionhub.auctionhub.dto.ListResponse;
 import com.example.auctionhub.auctionhub.dto.UserBidHistoryResponse;
 import com.example.auctionhub.auctionhub.service.BidService;
 
@@ -49,10 +52,13 @@ public class BidController {
      * GET /api/bids/item/{itemId}
      */
     @GetMapping("/item/{itemId}")
-    public ResponseEntity<List<BidResponse>> getBidHistory(@PathVariable Long itemId) {
+    public ResponseEntity<ListResponse<BidResponse>> getBidHistory(
+            @PathVariable Long itemId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         log.info("Fetching bid history for item {}", itemId);
-        List<BidResponse> bids = bidService.getBidhistory(itemId);
-        return ResponseEntity.ok(bids);
+        Page<BidResponse> bids = bidService.getBidhistory(itemId, PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(bids));
     }
 
     /**
@@ -60,10 +66,12 @@ public class BidController {
      * GET /api/bids/my-bids
      */
     @GetMapping("/my-bids")
-    public ResponseEntity<List<BidResponse>> getUserBids() {
+    public ResponseEntity<ListResponse<BidResponse>> getUserBids(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         log.info("Fetching bids for current user");
-        List<BidResponse> bids = bidService.getUserBids();
-        return ResponseEntity.ok(bids);
+        Page<BidResponse> bids = bidService.getUserBids(PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(bids));
     }
 
     /**
@@ -106,10 +114,12 @@ public class BidController {
      * GET /api/bids/active
      */
     @GetMapping("/active")
-    public ResponseEntity<List<ItemBidderResponse>> getUserActiveBids() {
+    public ResponseEntity<ListResponse<ItemBidderResponse>> getUserActiveBids(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         log.info("Fetching active bids for current user");
-        List<ItemBidderResponse> activeBids = bidService.getUserActiveBids();
-        return ResponseEntity.ok(activeBids);
+        Page<ItemBidderResponse> activeBids = bidService.getUserActiveBids(PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(activeBids));
     }
 
     /**
@@ -117,10 +127,12 @@ public class BidController {
      * GET /api/bids/history
      */
     @GetMapping("/history")
-    public ResponseEntity<List<UserBidHistoryResponse>> getUserInactiveBids() {
+    public ResponseEntity<ListResponse<UserBidHistoryResponse>> getUserInactiveBids(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         log.info("Fetching bid history for current user");
-        List<UserBidHistoryResponse> history = bidService.getUserunActiveBids();
-        return ResponseEntity.ok(history);
+        Page<UserBidHistoryResponse> history = bidService.getUserunActiveBids(PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(history));
     }
 
     // Request/Response DTOs

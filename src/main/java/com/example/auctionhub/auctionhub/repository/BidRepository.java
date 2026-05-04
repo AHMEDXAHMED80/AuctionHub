@@ -2,6 +2,8 @@ package com.example.auctionhub.auctionhub.repository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -18,9 +20,11 @@ public interface BidRepository extends JpaRepository<Bid, Long> {
     
     // Find all bids for a specific item
     List<Bid> findByItemId(Long itemId);
-    
+    Page<Bid> findByItemId(Long itemId, Pageable pageable);
+
     // Find all bids by a specific user
     List<Bid> findByUserId(Long userId);
+    Page<Bid> findByUserId(Long userId, Pageable pageable);
     
     // Find all unique users who bid on a specific item (for notifications)
     @Query("SELECT DISTINCT b.user.id FROM Bid b WHERE b.item.id = :itemId AND b.user.id != :excludeUserId AND b.user.id != :higestBidderId")
@@ -34,8 +38,16 @@ public interface BidRepository extends JpaRepository<Bid, Long> {
     @Query("SELECT B FROM Bid B WHERE B.user.id = :userId AND B.item.status = :status")
     List<Item> findUserActiveBids(@Param("userId") Long userId, @Param("status") Item.ItemStatus status);
 
+    @Query(value = "SELECT DISTINCT B.item FROM Bid B WHERE B.user.id = :userId AND B.item.status = :status",
+           countQuery = "SELECT COUNT(DISTINCT B.item.id) FROM Bid B WHERE B.user.id = :userId AND B.item.status = :status")
+    Page<Item> findUserActiveBids(@Param("userId") Long userId, @Param("status") Item.ItemStatus status, Pageable pageable);
+
     @Query("SELECT DISTINCT B.item FROM Bid B WHERE B.user.id = :userId AND B.item.endDate < CURRENT_TIMESTAMP")
     List<Item> findUserBidHistoryItems(@Param("userId") Long userId);
+
+    @Query(value = "SELECT DISTINCT B.item FROM Bid B WHERE B.user.id = :userId AND B.item.endDate < CURRENT_TIMESTAMP",
+           countQuery = "SELECT COUNT(DISTINCT B.item.id) FROM Bid B WHERE B.user.id = :userId AND B.item.endDate < CURRENT_TIMESTAMP")
+    Page<Item> findUserBidHistoryItems(@Param("userId") Long userId, Pageable pageable);
 
     @Query("SELECT count(B) FROM Bid B WHERE B.item.id IN(:itemIds) GROUP BY B.item.id")
     List<Object[]> countByItemId(@Param("itemIds") List<Long> itemIds);

@@ -11,6 +11,7 @@ import com.example.auctionhub.auctionhub.mapper.WalletMapper;
 import com.example.auctionhub.auctionhub.models.User;
 import com.example.auctionhub.auctionhub.models.Wallet;
 import com.example.auctionhub.auctionhub.models.Wallet.walletType;
+import com.example.auctionhub.auctionhub.repository.UserRepository;
 import com.example.auctionhub.auctionhub.repository.WalletRepository;
 import com.example.auctionhub.auctionhub.security.SecurityUtils;
 
@@ -27,21 +28,13 @@ public class WalletService {
      * Repository for wallet persistence operations.
      */
     private final WalletRepository walletRepository;
-
-    /**
-     * Mapper for converting Wallet entities to response DTOs.
-     */
     private final WalletMapper walletMapper;
+    private final UserRepository userRepository;
 
-    /**
-     * Constructs a WalletService with required dependencies.
-     *
-     * @param walletRepository Wallet repository for persistence
-     * @param walletMapper     Mapper for Wallet to WalletRespose
-     */
-    public WalletService(WalletRepository walletRepository, WalletMapper walletMapper) {
+    public WalletService(WalletRepository walletRepository, WalletMapper walletMapper, UserRepository userRepository) {
         this.walletRepository = walletRepository;
         this.walletMapper = walletMapper;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -68,12 +61,14 @@ public class WalletService {
         try {
             User currentUser = SecurityUtils.getCurrentUser();
             log.info("Creating wallet for user {} with role {}", currentUser.getId(), currentUser.getRole());
+            User managedUser = userRepository.findById(currentUser.getId())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
             Wallet newWallet = new Wallet();
-            newWallet.setUser(currentUser);
-            if (currentUser.getRole() == User.roles.USER) {
-                newWallet.setWalletType(walletType.BIDDER);
-            } else {
+            newWallet.setUser(managedUser);
+            if (managedUser.getRole() == User.roles.POSTER) {
                 newWallet.setWalletType(walletType.SELLER);
+            } else {
+                newWallet.setWalletType(walletType.BIDDER);
             }
 
             walletRepository.save(newWallet);

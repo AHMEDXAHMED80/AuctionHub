@@ -1,4 +1,6 @@
 package com.example.auctionhub.auctionhub.service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.access.AccessDeniedException;
@@ -60,11 +62,10 @@ public class ItemsSellerService {
      * @return List of ItemResponse DTOs for the user's items
      */
     @Transactional(readOnly = true)
-    public List<ItemResponse> getAllItemsForCurrentUser() {
+    public Page<ItemResponse> getAllItemsForCurrentUser(Pageable pageable) {
         User currentUser = SecurityUtils.getAuthenticatedUserOrThrow();
-        List<Item> userItems = itemRepository.findAllBySellerId(currentUser.getId());
-        return userItems.stream().map(itemSellerMapper::toItemResponse)
-                                .toList();
+        Page<Item> userItems = itemRepository.findAllBySellerId(currentUser.getId(), pageable);
+        return userItems.map(itemSellerMapper::toItemResponse);
     }
 
     /**
@@ -113,12 +114,11 @@ public class ItemsSellerService {
                 item.setDescription(request.getDescription());
             }
 
-            List<ItemImages> imgs = null;
             if (request.getImagesUrlList() != null) {
-                imgs = itemImageService.uploadImages(request, item);
-                item.setItemImages(imgs);
-            } else {
-                imgs = itemImageService.findAllByItemIdOrderByIndexAsc(item.getId());
+                // Persist new images without replacing the managed collection reference.
+                // Replacing the collection object on an orphanRemoval association can
+                // trigger Hibernate orphan-delete state errors during flush.
+                itemImageService.uploadImages(request, item);
             }
 
             itemRepository.save(item);

@@ -1,7 +1,9 @@
 package com.example.auctionhub.auctionhub.service;
 
 import java.math.BigDecimal;
-import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import com.example.auctionhub.auctionhub.dto.PaymentDetailsResponse;
 import com.example.auctionhub.auctionhub.mapper.PaymentMapper;
@@ -179,11 +181,11 @@ public class PaymentService {
      * 
      * @return List of payments ordered by created date (newest first)
      */
-    public List<PaymentDetailsResponse> getPaymentHistory() {
+    public Page<PaymentDetailsResponse> getPaymentHistory(Pageable pageable) {
         User currentUser = SecurityUtils.getCurrentUser();
-        List<Payment> payments = paymentRepository
-                .findByUserIdOrderByCreatedAtDesc(currentUser.getId());
-        return payments.stream().map(paymentMapper::toPaymentDetailsResponse).toList();
+        Page<Payment> payments = paymentRepository
+                .findByUserIdOrderByCreatedAtDesc(currentUser.getId(), pageable);
+        return payments.map(paymentMapper::toPaymentDetailsResponse);
     }
 
     /**

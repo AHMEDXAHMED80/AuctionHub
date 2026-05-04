@@ -1,6 +1,7 @@
 package com.example.auctionhub.auctionhub.controller;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -8,9 +9,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.auctionhub.auctionhub.constants.ApiConstants;
+import com.example.auctionhub.auctionhub.dto.ListResponse;
 import com.example.auctionhub.auctionhub.dto.PaymentDetailsResponse;
 import com.example.auctionhub.auctionhub.dto.PaymentRequest;
 import com.example.auctionhub.auctionhub.dto.PaymentResponse;
@@ -73,9 +76,11 @@ public class PaymentController {
      * @return List of all payments ordered by date (newest first)
      */
     @GetMapping(ApiConstants.PAYMENT_HISTORY)
-    public ResponseEntity<List<PaymentDetailsResponse>> getPaymentHistory() {
-        List<PaymentDetailsResponse> response = paymentService.getPaymentHistory();
-        return ResponseEntity.ok(response);
+    public ResponseEntity<ListResponse<PaymentDetailsResponse>> getPaymentHistory(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Page<PaymentDetailsResponse> response = paymentService.getPaymentHistory(PageRequest.of(page, size));
+        return ResponseEntity.ok(new ListResponse<>(response));
     }
     
     /**
